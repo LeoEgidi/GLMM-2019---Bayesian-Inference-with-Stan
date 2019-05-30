@@ -1,0 +1,1066 @@
+---
+title: "GLMM - Bayesian inference with Stan. Handouts"
+author: "L.Egidi - DEAMS, University of Trieste, Italy"
+date: "Padova, May 31th 2019"
+output:
+  html_document:
+    css: style.css
+    toc: yes
+  beamer_presentation:
+    highlight: tango
+  include: null
+  ioslides_presentation:
+    highlight: tango
+  pdf_document:
+    highlight: tango
+    keep_tex: yes
+    toc: yes
+  slide_level: 2
+  slidy_presentation:
+    fig.height: 3
+    fig.width: 4
+    highlight: tango
+graphics: yes
+header-includes:
+- \usepackage{color}
+- \usepackage{bm}
+- \definecolor{Purple}{HTML}{911146}
+- \definecolor{Orange}{HTML}{CF4A30}
+- \setbeamercolor{alerted text}{fg=Orange}
+- \setbeamercolor{frametitle}{bg=Purple}
+institute: University of Udine & University of Trieste
+fontsize: 10pt
+subtitle: XXXIV PhD cycle in Statistics, Unipd
+bibliography: ref.bib
+---
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.align = 'center', warning=FALSE, message=FALSE, fig.asp=0.625, fig.height =10, fig.width = 8, out.width='750px', dpi=200, 
+  dev='png', global.par = TRUE, dev.args=list(pointsize=10), fig.path = 'figs/')
+library(MASS)
+```
+```{r setup, include=FALSE}
+library(knitr)
+local({
+  hook_plot = knit_hooks$get('plot')
+  knit_hooks$set(plot = function(x, options) {
+    paste0('\n\n----\n\n', hook_plot(x, options))
+  })
+})
+```
+
+# Foundations of Bayesian inference
+
+## Joint, prior and posterior densities
+
+In simple terms, Bayesian inference involves a *joint probability distribution* for the parameter(s) $\theta$ and data $y$, which may be written as the product between the *sampling (data) distribution* $p(y|\theta)$ and the prior distribution $\pi(\theta)$:
+
+\begin{equation}
+p(\theta, y)= \pi(\theta)p(y| \theta).
+\label{eq_joint}
+\end{equation}
+
+Conditioning on the known value of the data $y$ yields the *posterior density*:
+
+\begin{equation}
+\pi(\theta|y)= \frac{p(\theta,y)}{p(y)}= \frac{\pi(\theta)p(y|\theta)}{p(y)}
+\label{eq_post},
+\end{equation}
+
+where $p(y)= \int_{\Theta}\pi(\theta)p(y|\theta)d\theta$ is the *marginal likelihood*. An equivalent form of this formula omits the denominator, depending on the data $y$ only, and consider the following proportionality:
+
+\begin{equation}
+\pi(\theta|y) \propto \pi(\theta)p(y|\theta)
+\label{eq_prop}
+\end{equation}
+
+## Model checking
+
+Once we have accomplished the first two steps of a Bayesian analysis---constructing a probability model and computing the posterior distribution of all estimands---we should not ignore the relatively easy step to <span style="color:red">assess the fit of the model</span> to the data and to our substantive knowledge. It is worth to remind that we use the term *model* to encompass the sampling distribution, the prior distribution, any hierarchical structure, and issues such as which explanatory variables have been included in a regression.
+
+
+It is of essential importance to check whether our model *fits the data well or not*. For this purpose, Bayesian model checking consists of generating data from the model and assessing whether these replications are consistent with the data at hand---***posterior predictive checks***. Any possible conflict between model and data should be emphasized by some diagnostic measures. Let $y^{rep}$ denote any data replication, the <span style="color:red">posterior predictive distribution</span> for these quantities is:
+
+\begin{equation}
+p(y^{rep}|y)=\int_{\Theta} p(\theta, y^{rep}|y)d\theta= \int_{\Theta} \pi(\theta|y)p(y^{rep}|\theta)d\theta.
+\label{eq:post_pred}
+\end{equation}
+
+Rarely this distribution has a closed form. For this reason, we may obtain an approximation in two steps (detailed in the **Lab** part):
+
+- obtain the MCMC sequence of posterior draws $\{\theta^{(s)}, s=1,\ldots,S \}$;
+
+- use $\theta^{(s)}$ for generating $y^{rep}$ through $p(y^{rep}| \theta^{(s)})$, the <span style="color:red">sampling distribution for replicated data</span>.
+
+To put in another way, what we expect is that the observed data should look *plausible* under the posterior predictive distribution.
+
+The usual way to assess model plausibility is to choose a set of statistics, say $T(y)$ (mean, standard deviation, median, etc.), and check the posterior distribution $T(y^{rep})$ against the observed statistic $T(y)$. In such a way, we may inspect possible missfits between the model and the data:
+
+```{r checking,  echo=FALSE}
+par(mfrow=c(1,2))
+ y <- rnorm(2000,4, 2 )
+ t_y <-mean(y)+1
+ t_y_2 <- 12
+ p_value1 <- sum(y > t_y)/2000
+ hist(y, breaks=50, xlab="T(y_rep)=mean(y)", probability = TRUE,
+   main =" No sign of missfit", xlim =c(-2,13), cex.main = 1.1, cex.lab =1.2)
+ abline(v = t_y, col="red", lwd =2)
+  text(10, 0.2, (paste("p=", p_value1 )), cex =1.2)
+ hist(y, breaks=50, xlab="T(y_rep)=mean(y)", probability = TRUE,
+   main =" Missfit", xlim =c(-2,13), cex.main =1.1, cex.lab =1.2)
+ abline(v = t_y_2, col="red", lwd =2)
+ p_value2 <- sum(y > t_y_2)/2000
+ text(10, 0.2, (paste("p=", p_value2 )), cex =1.2)
+```
+
+As a measure of model checking, we may compute <span style="color:red">Bayesian p-values</span> as:
+
+\begin{equation}
+p_{b}=Pr(T(y^{rep}) \geq T(y)|y).
+\label{eq_bayesian_p}
+\end{equation}
+
+A Bayesian p-value too close to zero or one is a suggestion of a likely model missfit (different than classical interpretation! An this is really a probability!)
+
+In practice, we usually compute the ppd \eqref{eq:post_pred} using **simulation**. Specifically, this happens with a two-steps procedure:
+
+
+- Suppose to obtain $S$ simulations $\theta^{(s)}$, $s=1,\ldots,S$ from the posterior distribution, for instance from MCMC sampling.
+- We generate $S$ draws $y^{\textrm{rep}(s)}$ from $p(y^{\textrm{rep}}|\theta^{(s)})$. 
+- We compute now $T(y^{\textrm{rep}}, \theta)$: the estimated  Bayesian $p$-value for $p_b$ is the proportion of these $S$ simulations for which the test quantity equals or exceeds its realized values; that is, for which $T(y^{\textrm{rep}(s)}, \theta) \ge T(y, \theta)$.
+
+
+## Prediction
+
+After the data $\boldsymbol{y}=(y_1,\ldots,y_N)$ have been observed, suppose we want to predict a future unknown observable value denoted by $\tilde{y}$. Its distribution, conditioned on the observed data, is still called *posterior predictive distribution*:
+
+\begin{equation}
+p(\tilde{y}|y)=\int_{\Theta} p(\theta, \tilde{y}|y)d\theta= \int_{\Theta} \pi(\theta|y)p(\tilde{y}|\theta)d\theta,
+\end{equation}
+
+again expressed as a mixture, between the posterior distribution $\pi(\theta|y)$ and, now, the sampling distribution for future data $p(\tilde{y}|\theta)$. 
+
+As mentioned for the model checking, we may use the MCMC draws from the parameters posterior distribution to simulate and predict future events. The only difference here is that whereas $y^{rep}$ is a **in-sample** replication, $\tilde{y}$ is an **out-of-sample** replication (new values).
+
+
+# Bayesian regression modelling
+
+As for classical inference, also Bayesian statistics allows for regression framework with a flexible set of tools. Regression means that our data $\{\boldsymbol{y},\boldsymbol{X} \}$---where $\boldsymbol{y}$ is a $N \times 1$ vector, and $\boldsymbol{X}$ is a $N\times K$ matrix of predictors where the first column is a $N \times 1$ vector of 1's---are naturally thought as **dependent variables** and **covariates**, respectively, and connected through a functional relationship:
+
+$$\boldsymbol{y}=f(\boldsymbol{X})+\boldsymbol{\epsilon},$$
+where the relationship expressed by $f$ involves a $K\times 1$ vector of regression parameters $\boldsymbol{\beta}=(\beta_1,\ldots,\beta_K)$, with $\beta_1$ acting as model intercept. 
+
+Before proceeding, let us mention that, accordingly to the context, we will use the following symbols:
+
+- $p(\boldsymbol{y}|\theta)$ ---sampling distribution and
+
+- $L(\theta;\boldsymbol{y})$---Likelihood
+
+quite interchangeably, reminding the reader that the sampling distribution is a *function of the data* $\boldsymbol{y}$, conditioned on the parameter $\theta$, while the likelihood is a *function of the parameter* $\theta$, conditioned on the data $\boldsymbol{y}$.  
+
+
+## Linear regression
+
+
+A normal linear model for a sample of iid values $\{y_n,\boldsymbol{x}_n \}, \ n=1,\ldots,N$---where $\boldsymbol{x}_n$ is a row-vector from the $N\times K$ predictor matrix $\boldsymbol{X}$---in the classical approach involves a likelihood:
+
+$$L( \boldsymbol{\beta}, \sigma^2; \boldsymbol{y}, \boldsymbol{X})=\prod_{n=1}^{N}\mathcal{N}(\sum_{k=1}^K \beta_kx_{nk}, \sigma^2),$$
+
+where $\beta_1$ is the model intercept and $\sigma^2$ the likelihood variance, and the global vector parameter is represented by $\boldsymbol{\theta}=( \boldsymbol{\beta}, \sigma^2)$.
+The likelihood above may be expressed in log-scale as a log-likelihood:
+
+$$ \log L(\boldsymbol{\beta}, \sigma^2; \boldsymbol{y},\boldsymbol{X}) \equiv l( \boldsymbol{\beta}, \sigma^2; \boldsymbol{y},\boldsymbol{X})=\sum_{n=1}^{N} \log \mathcal{N}(\sum_{k=1}^K \beta_kx_{nk}, \sigma^2). $$
+
+In Bayesian inference, we are asked to assign some <span style="color:red">prior</span> distributions to our regression vector parameter  $\boldsymbol{\beta}$ and the likelihood $\sigma^2$. Unlike what happens in classical inference, where we obtain some point estimates $\hat{\boldsymbol{\beta}}$, here we deal with a (joint) <span style="color:red">posterior distribution</span> $\pi( \boldsymbol{\beta},\sigma^2|\boldsymbol{y},\boldsymbol{X})$ satisfying the Bayes theorem:
+
+$$ \pi(\boldsymbol{\beta},\sigma^2 | \boldsymbol{y}) \propto \pi( \boldsymbol{\beta},\sigma^2)L( \boldsymbol{\beta}, \sigma^2; \boldsymbol{y},\boldsymbol{X}), $$
+which in log-scale becomes:
+
+\begin{equation}
+\log \pi( \boldsymbol{\beta},\sigma^2 |\boldsymbol{y}) \propto \log \pi( \boldsymbol{\beta},\sigma^2)+ l(\boldsymbol{\beta}, \sigma^2; \boldsymbol{y},\boldsymbol{X})
+\end{equation}
+
+As will be shown later on, working in a log-scale could be convenient for several choices, especially for computational reasons. Think, for example to assign the following priors, considering $\sigma^2$ as known:
+
+$$\begin{align*}
+\beta_1 \sim & \mathsf{Uniform}(-\infty, \infty)\\
+\boldsymbol{\beta}_{-1} \sim & \mathcal{N}_{k-1}(\boldsymbol{\mu}, \boldsymbol{\Sigma}),
+\end{align*}$$
+where $\boldsymbol{\beta}_{-1}$ is the vector of regression coefficients without the intercept.
+The joint prior $\pi(\boldsymbol{\beta})$ is then defined as:
+
+$$ \pi(\beta_1, \boldsymbol{\beta}_{-1})=\pi(\beta_1)\pi(\boldsymbol{\beta}_{-1}),$$
+
+which in log-scale becomes:
+
+\begin{align*} \log \pi(\beta_1, \boldsymbol{\beta}_{-1})= & \log \pi(\beta_1)+\log \pi(\boldsymbol{\beta}_{-1})=\\
+& \log 1+ \log \pi(\boldsymbol{\beta}_{-1})=\\
+& \log \pi(\boldsymbol{\beta}_{-1})
+\end{align*}
+
+ Flat priors *are irrelevant when using log-scale*!
+
+## Which prior for regression coefficients?
+
+Eliciting a prior distribution is essential in Bayesian inference. A prior is directly connected with the **pre-experimental information** a statistician 
+has about a given parameter. However, a prior could be elicited even *in absence of (partial) information*, and <span 
+style="color:red">noninformative/flat/vague/diffuse</span> priors may be chosen.
+
+### Noninformative prior
+
+For instance, classical regression framework may be seen as a special case of a Bayesian regression model with Uniform flat priors ranging from $-\infty$ to $+\infty$ for the regression coefficients $\boldsymbol{\beta}$.
+
+A convenient way to express a noninformative prior distribution for the global vector parameter is uniform on $( \boldsymbol{\beta},\log \sigma)$ or, equivalently,
+
+\begin{equation}
+\pi( \boldsymbol{\beta}, \sigma^2| X) \propto \sigma^{-2}.
+\label{eq:linear_prior}
+\end{equation}
+
+Thus, in a more compact way we may write:
+
+\begin{align*}
+y_n  & \sim \mathcal{N}( \boldsymbol{\beta} \boldsymbol{x}_n, \sigma^2)\\
+\beta_k & \sim \mathsf{Uniform}(-\infty, +\infty), \ k=1,\ldots,K.
+\end{align*}
+
+
+
+We define the **joint posterior distribution** for $\sigma^2$ and $\boldsymbol{\beta}$ via the Bayes Theorem:
+
+\begin{small}
+\begin{align}
+\begin{split}
+\pi(\boldsymbol{\beta}, \sigma^2|y) &\propto p(y| \boldsymbol{\beta}, \sigma^2)\pi(\boldsymbol{\beta}, \sigma^2)
+\propto \mathcal{N}(\boldsymbol{X}\boldsymbol{\beta}, \sigma^2) \sigma^{-2}\\
+ & \propto \sigma^{-n-2} \exp \left\{-\frac{1}{2\sigma^2}\left[\sum_{n=1}^{N}\left(y_n-\sum_{j=1}^{K}x_{nj}\beta_j \right)^2 \right] \right\}
+\end{split}
+\label{eq:linear_jointposterior}
+\end{align}
+\end{small}
+
+Then, we factor the joint posterior $\pi(\boldsymbol{\beta}, \sigma^2|y)$ as:
+
+
+\begin{equation}
+ \pi(\beta, \sigma^2|y) = {\pi(\beta| \sigma^2 , y)}{\pi(\sigma^2|y)},
+ \label{eq:linear_factorization}
+\end{equation}
+
+where $\pi(\beta| \sigma^2 , y)$ is the **conditional posterior** of $\beta$ on $\sigma^2$, and $\pi(\sigma^2|y)$ is the **marginal posterior** of $\sigma^2$. One may prove that:
+
+
+\begin{equation}
+\beta| \sigma^2 , y \sim \mathcal{N}(\hat{\beta}, V_{\beta} \sigma^2),
+\label{eq:linear_conditionalposterior}
+\end{equation}
+
+and
+
+\begin{equation}
+\sigma^2|y \sim \text{inv-}\chi^2 (N-K, s^2),
+\label{eq:linear_marginalposterior}
+\end{equation}
+
+where $\hat{\boldsymbol{\beta}}= (\boldsymbol{X}^T\boldsymbol{X})^{-1}\boldsymbol{X}^{T}\boldsymbol{y}$, $s^2=\frac{1}{N-K}(\boldsymbol{y}-\boldsymbol{X}\hat{\boldsymbol{\beta}})^{T}(\boldsymbol{y}-\boldsymbol{X} \hat{\boldsymbol{\beta}})$, and $V_{\beta}=(\boldsymbol{X}^{T}\boldsymbol{X})^{-1}$. The joint posterior follows a Normal-Inverse Gamma distribution $\mathcal{N}\mathsf{IG}(\mu, \lambda, a, b)$, where $$\mu= \hat{\boldsymbol{\beta}}, \lambda = (\boldsymbol{X}^{T}\boldsymbol{X})^{-1}, a =(N-K)/2, b= (N-K)s^2/2.$$
+
+### Conjugate prior
+
+Bayesian analysis is designed to incorporate prior information into statistical inference. Then, the joint prior may be defined as follows:
+
+\begin{align}
+\begin{split}
+\pi(\boldsymbol{\beta}, \sigma^2) =& \pi(\boldsymbol{\beta}| \sigma^2) \pi(\sigma^2)\\
+& = \mathcal{N}(\mu_{\beta}, \sigma^2 W_{\beta})\text{invGamma}(a,b)=\mathcal{N}\mathsf{IG}(\mu_{\beta}, W_{\beta},a,b),
+\end{split}
+\label{eq:linear_infprior}
+\end{align}
+
+where $\mathcal{N}\mathsf{IG}$ denotes an inverse Gamma distribution, with hyperparameters $a,b>0$, and $W_{\beta}$ is a positive-definitve variance matrix. The Normal-Inverse Gamma is the *conjugate prior* for the linear model. The joint posterior is then:
+
+\begin{equation}
+\pi(\boldsymbol{\beta},\sigma^2|\boldsymbol{y}) \propto p(\boldsymbol{y}| \boldsymbol{\beta}, \sigma^2)\pi(\boldsymbol{\beta},\sigma^2)
+\label{eq:linear_infposterior}
+\end{equation}
+
+One may prove that the joint posterior is still a $\mathcal{N}\mathsf{IG}(\mu{'}, W{'}, a{'}, b{'})$, where:
+
+\begin{align*}
+\mu{'}= & (W^{-1}_{\beta}+\boldsymbol{X}^{T}\boldsymbol{X})^{-1}(W^{-1}_{\beta}\mu_{\beta}+\boldsymbol{X}^{T}\boldsymbol{y}) \\
+W{'}= & (W^{-1}_{\beta}+\boldsymbol{X}^{T}\boldsymbol{X})^{-1}\\
+a{'}=& a+N/2\\
+b{'}= & b+\frac{1}{2}[\mu^{T}_{\beta}W^{-1}_{\beta}\mu_{\beta}+\boldsymbol{y}^{T}\boldsymbol{y}-\mu^{'T}W^{'-1}\mu^{'}].
+\end{align*}
+
+
+
+### A first glimpse of Stan
+
+Let's have an initial flavour of computational statistics, and let'see how to implement such a simple linear model with uniform priors in Stan.
+
+For a first, simple example of Bayesian regression model, let's introduce the Stan syntax:
+
+```{stan, output.var="ex1"}
+data {
+  int<lower=0> N;
+  vector[N] x;
+  vector[N] y;
+}
+parameters {
+  real alpha;
+  real beta;
+  real<lower=0> sigma;
+}
+model {
+  y ~ normal(alpha + beta * x, sigma);
+}
+```
+```alpha``` is the intercept, ```beta``` a scalar coefficient, ```sigma```the  sampling standard deviation, constrained to be greater than zero.
+
+## Generalized linear regression
+
+As in classical inference, moving to Generalized Linear Models framework involves a twice-differentiable *link function* $g$, such that:
+
+$$g(E[\boldsymbol{y}])= \boldsymbol{\eta}\equiv \boldsymbol{X}\boldsymbol{\beta}.$$
+In such a way, given that $\boldsymbol{\eta} \in (-\infty, +\infty)$, $g^{-1}(\boldsymbol{\eta})$ is constrained according to the codomain of $g^{-1}$. 
+
+### Poisson regression
+
+Suppose $\boldsymbol{y}=(y_1,\ldots,y_N)$ is a discrete sample of counts from a Poisson distribution. The natural way to connect the mean of the single value, $\mu_n=E[y_n]$ to the linear predictor $\eta_n$ is to assume a log-linear model, where $g=\log(\cdot)$:
+
+$$\log E[y_n]= \log \mu_n= \boldsymbol{x}_n\boldsymbol{\beta} \Rightarrow \mu_n=\exp\{\boldsymbol{x}_n\boldsymbol{\beta}\}.$$
+
+### Logistic regression
+
+A sample of binary data $\boldsymbol{y}=(y_1,\ldots,y_N)$, where $Pr(y_n=1) \equiv p_n$, may be modelled with a logistic model, where $g(p)=logit(p)=\log(p/(1-p))$, with $logit(x):(0,1)\rightarrow(-\infty, +\infty)$:
+
+$$logit(p_n)=\log\left(\frac{p_n}{1-p_n}\right)= \boldsymbol{x_n}\boldsymbol{\beta} \Rightarrow p_n=\frac{1}{1+\exp\{ -(\boldsymbol{x}_n\boldsymbol{\beta}) \}}$$
+
+
+
+
+## Hierarchical models
+
+A common problem in applied statistics is modeling individuals of a population. **Multilevel/hierarchical models** are extensions of regression in which <span style="color:red">data are structured in groups</span> and coefficients can vary by group. We start with simple grouped data-person within cities, e.g.-where some information is available on individuals and some information is at the group level.  They act as a compromize between two philosophical extremes. In what follows, $\alpha$ denotes the intercept of the model and $\boldsymbol{\beta}$ a $K \times 1$ regression parameter vector.
+
+- If we assume that every individual is equivalent then we
+can pool the data, but only at the expense of bias. $\Rightarrow$ <span style="color:red">Complete pooling</span>.
+
+
+```{r complete, fig.width=12, fig.height=15,out.height =19, echo=FALSE}
+ library(jpeg)
+ library(grid)
+ img <- readJPEG("complete_pool.jpg")
+  grid.raster(img)
+```
+This is the case of a probabilistic assignment like: $y_n \sim \mathcal{N}(\alpha+\boldsymbol{x_n}\boldsymbol{\beta}, \sigma^2)$
+
+- Conversely, modeling every individual separately avoids any bias, but then the data becomes very sparse and inferences weak. $\Rightarrow$ <span style="color:red">No pooling</span>.
+
+```{r no, echo=FALSE}
+ library(png)
+ library(grid)
+ img <- readPNG("no_pool.jpg")
+  grid.raster(img)
+```
+
+This is the case of a probabilistic assignment like: $y_n \sim \mathcal{N}(\alpha_n+\boldsymbol{x_n}\boldsymbol{\beta}_n, \sigma^2)$, where we have one intercept and one slope for each individual.
+
+A compromise between complete pooling and no pooling
+that could balance bias and variance would be ideal.
+Thus, **hierarchical models** allow for this:
+
+```{r hier, echo=FALSE}
+ library(jpeg)
+ library(grid)
+ img <- readJPEG("hier.jpg")
+  grid.raster(img)
+```
+
+The common feature of such models is that the observed units $y_{nj}$ are indexed by the statistical unit $n$ in group $j$ (examples: *students within schools*, *players within teams*). In general, these observable outcomes are modeled conditionally on certain *not observable* parameters $\theta_{j}$, viewed as drawn from a **population distribution**, which themselves are given a probabilistic (prior) distribution in terms of further parameters, known as *hyperparameters*. The likelihood for the single observation $y_{nj}$ is then denoted by $L(\theta_j; y_{nj})$.
+
+Resuming:
+
+- individual level: observed $y_{nj}, \ n=1,\ldots,N, \ j=1,\ldots J$; 
+
+$$y_{nj} \sim p(\boldsymbol{y}| \theta_j)$$
+
+- group level: $\theta_{j}$, $j=1,\ldots,J$, depending on an hyperparameter $\phi$.
+
+$$\theta_{j} \sim \pi(\boldsymbol{\theta};\phi)$$
+
+One main assumptions for $\theta_{j}$'s is **exchangeability**: if no information is available to distinguish any of them from any of the others, one must assume symmetry. Formally, $(\theta_1,\ldots,\theta_J)$ are said to be exchangeable if their joint distribution $\pi(\theta_1,\ldots,\theta_J)$ is invariant to any permutation of the indexes $(1,\ldots,J)$. As the population grows, the only prior distribution that
+respects exchangeability is a <span style="color:red">hierarchical distribution</span>:
+
+\begin{equation}
+\pi(\boldsymbol{\theta})= \int \prod_{j=1}^{J}\pi(\boldsymbol{\theta}|\phi)\pi(\phi) d \phi
+\end{equation}
+
+
+In such a way, the joint distribution for $\boldsymbol{y}$ and $\theta$ becomes: 
+
+$$p(\boldsymbol{\theta},\boldsymbol{y}) = \prod_{n=1}^{N}p(y_{nj}|\theta_{j[n]})\pi(\theta_{j[n]}|\phi)\pi(\phi),$$
+with the nested index $j[n]$ denoting the group membership of the $n$-th unit,
+whereas the joint posterior distribution for $\boldsymbol{\theta}, \phi$ is:
+
+$$\pi(\boldsymbol{\theta}, \phi| \boldsymbol{y})\propto \pi(\phi, \boldsymbol{\theta})p(\boldsymbol{y}| \boldsymbol{\theta}).$$
+<!-- Dyrected acyclic graphs (DAG) are very useful for visualizing hierarchical model. This is an example of a hierarchical linear model: -->
+
+<!-- ```{r dag, echo=FALSE} -->
+<!--  library(png) -->
+<!--  library(grid) -->
+<!--  img <- readPNG("dag.png") -->
+<!--   grid.raster(img) -->
+<!-- ``` -->
+
+
+### Normal hierarchical model
+
+Hierarchical regression models are useful as soon as there are predictors at different levels of variation. Some examples may be:
+
+
+-  In studying scholastic achievement, we may have students within schools, with predictors both at the individual and at the group level.
+-  Data obtained by stratified or cluster sampling
+
+We can think of a generalization of linear regression, where *intercepts*, and possibly *slopes*, are allowed to vary by group. A batch of $J$ coefficients is assigned a model, and this group-level model is estimated simultaneously with the data-level regression of $\boldsymbol{y}$.
+Assume then a *varying-intercept model*:
+
+\begin{align*}
+y_{nj} \sim & \mathcal{N}(\alpha_{j[n]}+\boldsymbol{\beta}\boldsymbol{x}_n, \sigma^{2}), \ n=1,\ldots,N, \ \mbox{Individual level}\\
+\alpha_{j} & \sim \mathcal{N}(0, \tau^2), \ j=1,\ldots,J, \ \mbox{Group level}
+\end{align*}
+
+with some prior for $\tau^2$, the population variance (see below).
+
+Notice that, in the limits:
+
+- $\tau^{2} \rightarrow 0$ $\Rightarrow$ Complete pooling
+
+- $\tau^{2} \rightarrow \infty$ $\Rightarrow$ No pooling
+
+
+
+
+
+### Logistic hierarchical model
+
+Suppose we have binary data, we propose a *varying-intercept model*:
+
+\begin{align}
+logit(p_{nj})= & \alpha_{j[n]}+\boldsymbol{\beta} \boldsymbol{x}_n, \ n=1,\ldots,N\\
+\alpha_{j} & \sim \mathcal{N}(0, \tau^2), \ j=1,\ldots,J
+\end{align}
+
+### Priors for $\tau^2$
+
+Informative/weakly informative prior distributions on the population
+hyperparameters are incredibly important. For instance, regarding the population variance $\tau^2$, for many years some authors suggested as usual choice a noninformative inverse Gamma:
+
+\begin{equation}
+\tau^2\sim \mathsf{InvGamma}(0.01, 0.01),
+\end{equation}
+
+with both hyperparameters fixed, in this case at 0.01.
+
+Another noninformative choice is to take a Uniform distribution for $\tau$ in a wide range:
+ 
+ $$\tau \sim \mathsf{Uniform(0,100)}.$$
+
+
+However, @gelman2006prior noted that the first one is not actually a noninformative prior, and we start to check this via a preliminary visualization example.
+
+
+```{r uniform}
+library(invgamma)
+par(mar=c(5,6,3,1))
+curve(dunif(x, 0,20), xlim=c(0,10), xlab= expression(tau), col="red", lwd=2, ylab ="Density", ylim=c(0,0.2), main=expression(paste("Priors for ", tau)), cex.lab=1.8, cex.main =2)
+curve(dcauchy(x, 0, 2.5), xlim=c(0,10), add =TRUE, col="blue", lwd=2)
+curve(dinvgamma(x^2, 0.01, 0.01)*2*x, add =TRUE, col="black", lwd =2)
+
+
+legend(6, 0.2, c("Uniform(0,20)", "Half-Cauchy(0,2.5)", "InvGamma(0.01, 0.01)"), col=c("red","blue","black"), lty=1)
+
+```
+
+- A uniform prior $\mathsf{Uniform(a, b)}$ on the population deviance places
+too much probability at high values and no pooling $\Rightarrow$ FLAT
+
+- An inverse gamma $\mathsf{InvGamma(0.01, 0.01)}$ shrinks a lot the values toward zero $\Rightarrow$ maybe, not truly NONINFORMATIVE (see later on)
+
+- For the model to be able to partially pool we need a
+weakly informative prior that concentrates around zero, such as $\mathsf{HalfCauchy(0, scale)}$, but supporting a long right tail $\Rightarrow$ WEAKLY INFORMATIVE
+
+
+ 
+### Eight schools example
+
+This is an example in Section 5.5 of @gelman2014bayesian, which studied coaching effects from eight schools on test scores. The outcome variable in each school is the score in a multiple choice test in each of eight high schools. For simplicity, we call this example "eight schools."
+
+We denote with $y_{nj}$ the result of the $n$-th test in the $j$-th school. We assume the following model:
+
+
+
+\begin{align*}
+y_{nj}  & \sim \mathcal{N}(\theta_j, \sigma^2_y)\\
+\theta_j  & \sim \mathcal{N}(\mu, \tau^2)
+\end{align*}
+
+<span style="color:red">Do some schools perform better/worse according to these coaching effects?</span>
+
+Actually, for each school we have the estimated coaching effects $y_j$,  $y = (28,8,-3,7,-1,1,18,12)$, and a measure of standard deviation for them, $s=(15,10,16,11,9,11,10,18)$. We perform three distinct analysis: (1) separate models (no pooling), with each school separately modeled and fitted; (2) pooled model (complete pooling), with all the schools fitted together; (3)  hierarchical model (partial pooling), allowing for some population parameters $\theta_j$ with a prior distribution (see above).
+
+```{r schools_3mod, warning=FALSE, message = FALSE,  echo =FALSE}
+library(bayesplot)
+library(ggplot2)
+theme_set(theme_minimal())
+library(gridExtra)
+library(tidyr)
+library(rprojroot)
+y <- c(28,8,-3,7,-1,1,18,12)
+s <- c(15,10,16,11,9,11,10,18)
+
+# separate analysis
+
+
+x <- seq(-40, 60, length.out = 500)
+df_sep <- mapply(function(y, s, x) dnorm(x, y, s), y, s, MoreArgs = list(x = x)) %>%
+  as.data.frame() %>% setNames(LETTERS[1:8]) %>% cbind(x) %>% gather(school, p, -x)
+labs1 <- c('Other Schools', 'School A')
+plot_sep <- ggplot(data = df_sep) +
+  geom_line(aes(x = x, y = p, color = (school=='A'), group = school)) +
+  labs(x = 'Treatment effect', y = '', title = 'Separate model', color = '', size =rel(2)) +
+  scale_y_continuous(breaks = NULL) +
+  scale_color_manual(values = c('blue','red'), labels = labs1) +
+  theme(legend.background = element_blank(), legend.position = c(0.8,0.9))+
+  theme(plot.title = element_text(hjust = 0.5, size =rel(2)),
+        axis.title=element_text(size=22))+
+  xaxis_text(on =TRUE, size=rel(1.9))+
+  yaxis_text(on =TRUE, size=rel(1.9))
+
+
+# complete pool
+
+df_pool <- data.frame(x = x, p = dnorm(x, sum(y/s^2)/sum(1/s^2), sqrt(1/sum(1/s^2))))
+
+
+plot_pool <- ggplot(data = df_pool) +
+  geom_line(aes(x = x, y = p, color = '1')) +
+  labs(x = 'Treatment effect', y = '', title = 'Pooled model', color = '') +
+  scale_y_continuous(breaks = NULL) +
+  scale_color_manual(values = 'red', labels = 'All schools') +
+  theme(legend.background = element_blank(), legend.position = c(0.7,0.9))+
+  theme(plot.title = element_text(hjust = 0.5, size =rel(2)),
+        axis.title=element_text(size=22))+
+  xaxis_text(on =TRUE, size=rel(1.9))+
+  yaxis_text(on =TRUE, size=rel(1.9))
+
+
+# Load the pre-computed results for the hierarchical model Replace this with your own code in the related exercise
+
+load("demo5_2.RData")
+#  hierarchical model
+
+
+df_hier <- as.data.frame(t(pxm)) %>% setNames(LETTERS[1:8]) %>%
+  cbind(x) %>% gather(school, p, -x)
+plot_hier <- ggplot(data = df_hier) +
+  geom_line(aes(x = x, y = p, color = (school=='A'), group = school)) +
+  labs(x = 'Treatment effect', y = '', title = 'Hierarchical model', color = '') +
+  scale_y_continuous(breaks = NULL) +
+  scale_color_manual(values = c('blue','red'), labels = labs1) +
+  theme(legend.background = element_blank(), legend.position = c(0.8,0.9))+
+  theme(plot.title = element_text(hjust = 0.5, size =rel(2)),
+        axis.title=element_text(size=22))+
+  xaxis_text(on =TRUE, size=rel(1.9))+
+  yaxis_text(on =TRUE, size=rel(1.9))
+
+
+#Plot separate, pooled, and hierarchical model
+
+
+grid.arrange(plot_sep, plot_pool, plot_hier)
+
+```
+
+
+-  **Separate analysis**: the standard errors of these estimated effects make very difficult to distinguish between any of the experiments...treating each experiment separately and applying the simple normal analysis in each yields 95\% posterior intervals that all overlap substantially.
+
+- **Pooled-analysis**: under the hypothesis that all experiments have the same effect and produce independent estimates of this common effect, we could treat $\boldsymbol{y}$ as eight normally distributed observations with known variances. The pooled estimate is 7.7, and the posterior variance is 16.6.
+
+- **Hierarchical analysis**: compromise between the two extremes (closer to the complete pooling case) , it combines information from all the eight experiments *without* assuming all the $\theta_j$ to be equal. 
+
+
+We could also plot some marginal and posterior summaries:
+
+
+```{r eight_schools_marg, echo=FALSE}
+df_margpost = data.frame(x = t(tt), p = t(tp))
+title1 <- 'Marginal posterior density p(tau|y)'
+plot_margpost <-
+  ggplot(data = df_margpost) +
+  geom_line(aes(x = x, y = p)) +
+  labs(x = expression(tau), y = 'p(tau|y)', title = title1) +
+  scale_y_continuous(breaks = NULL)+
+  theme(plot.title = element_text(hjust = 0.5, size =rel(2)),
+        axis.title=element_text(size=22))+
+  xaxis_text(on =TRUE, size=rel(1.9))+
+  yaxis_text(on =TRUE, size=rel(1.9))
+plot_margpost
+
+
+df_condmeans <- as.data.frame(t(tm)) %>% setNames(LETTERS[1:8]) %>%
+  cbind(x = t(tt)) %>% gather(school, p, -x)
+
+
+yl <- c(-5, 40)
+title2 <- 'Cond. posterior means of effects E[theta_j|tau,y]'
+plot_condmeans <- ggplot(data = df_condmeans) +
+  geom_line(aes(x = x, y = p, color = (school=='A'), group = school)) +
+  coord_cartesian(ylim = yl) +
+  labs(x = expression(tau), y = 'E[theta_j|tau,y)', title = title2, color = '') +
+  scale_color_manual(values = c('blue','red'), labels = labs1) +
+  theme(legend.background = element_blank(), legend.position = c(0.8,0.9))+
+  theme(plot.title = element_text(hjust = 0.5, size =rel(2)),
+        axis.title=element_text(size=22))+
+  xaxis_text(on =TRUE, size=rel(1.9))+
+  yaxis_text(on =TRUE, size=rel(1.9)) 
+plot_condmeans
+
+
+
+df_condsds <- as.data.frame(t(tsd)) %>% setNames(LETTERS[1:8]) %>%
+  cbind(x = t(tt)) %>% gather(school, p, -x)
+
+
+yl <- c(0, 25)
+title3 <- 'Cond. posterior standard deviations of effects sd[theta_j|tau,y]'
+plot_condsds <- ggplot(data = df_condsds) +
+  geom_line(aes(x = x, y = p, color = (school=='A'), group = school)) +
+  coord_cartesian(ylim = yl) +
+  labs(x = expression(tau), y = 'sd[theta_j|tau,y)', title = title3, color = '') +
+  scale_color_manual(values = c('blue','red'), labels = labs1) +
+  theme(legend.background = element_blank(), legend.position = c(0.8,0.9))+
+  theme(plot.title = element_text(hjust = 0.5, size =rel(2)),
+        axis.title=element_text(size=22))+
+  xaxis_text(on =TRUE, size=rel(1.9))+
+  yaxis_text(on =TRUE, size=rel(1.9)) 
+plot_condsds
+```
+
+
+
+
+
+-  In the plot for the marginal posterior $\pi(\tau|\boldsymbol{y})$, $\tau=0$ is the most likely value (no variation in $\theta$, complete pooling).
+
+- Conditional posterior means $\textrm{E}(\theta_j|\tau, \boldsymbol{y})$ are displayed as functions of $\tau$: for most of the likely values of $\tau$, the estimated effects are relatively close together: as $\tau$ becomes larger (more variability among schools), the estimates approach the separate analysis results.
+
+- Conditional standard deviations $\textrm{sd}(\theta_j|\tau, \boldsymbol{y})$ become larger as $\tau$ increases.
+
+
+Both the extreme analysis have difficulties. Some comments:
+
+- Consider school A. The effect in school A is estimated as 28.4 with a standard error of 14.9 under the separate analysis, versus a pooled estimate of 7.7 with a standard error of 4.1. Mmh...should I flip a coin?
+ 
+- The general conclusion from these posterior summaries is that an effect as large as 28.4 points (school A) in any school is unlikely. For the likely values of $\tau$, the estimates in all schools are substantially less than 28 points.
+
+- To sum up, the Bayesian analysis of this example not only allows straightforward inferences about many parameters, but provides posterior inferences that account for the partial pooling as well as the uncertainty in the hyperparameters.
+
+
+We have still to investigate the role of the prior for the population standard deviation $\tau$.
+Afterwards we will go in much more depth with Stan and its details. At the time being, we plot the MCMC posterior distribution for $\tau$ (histogram) against the prior (red line). As it is evident, the inverse Gamma distribution shrinks the values towards zero. Half-Cauchy prior allows for a longer tail. Here we display the marginal posterior for $\tau$ (gray areas) plotted against the three priors above (solid red lines):
+
+
+```{r schools, warning=FALSE, message = FALSE, results='hide', echo =FALSE}
+library(rstan)
+library(invgamma)
+schools_dat <- list(J = 8, 
+                    y = c(28,  8, -3,  7, -1,  1, 18, 12),
+                    sigma = c(15, 10, 16, 11,  9, 11, 10, 18))
+fit1 <- stan(file = '8schools.stan', data = schools_dat, 
+            iter = 1000, chains = 4)
+fit2 <- stan(file = '8schools_invgamma.stan', data = schools_dat, 
+            iter = 1000, chains = 4)
+fit3 <- stan(file = '8schools_halfcauchy.stan', data = schools_dat, 
+            iter = 1000, chains = 4)
+
+sims1 <- extract(fit1)
+sims2 <- extract(fit2)
+sims3 <- extract(fit3)
+par(mfrow=c(1,3))
+par(mfrow=c(1,3), mar =c(5,5,4,1))
+hist(sims1$tau, probability = TRUE, xlab=expression(tau), main=
+       "Uniform(0,100)", cex.main =2.2, breaks=30, cex.lab=2.5,
+     col="gray", border ="black")
+abline(h=0.01, col="red", lwd =3)
+hist(sims2$tau, probability = TRUE, xlab=expression(tau), main= " InvGamma(0.01,0.01)" , 
+     cex.main =2.2,  breaks=30, cex.lab=2.5, col="gray", border ="black")
+curve(dinvgamma(x^2, 0.01,0.01)*2*x, add=TRUE, col="red", lwd =3)
+hist(sims3$tau, probability = TRUE, xlab=expression(tau), main="HalfCauchy(0,2.5)",
+     cex.main =2.2,  breaks=30, cex.lab=2.5, col="gray", border ="black")
+curve(dcauchy(x, 0, 2.5), add=TRUE, col="red", lwd =3)
+```
+
+
+- The leftmost histogram shows the posterior inference for 
+$\tau$ (as represented by 2000
+simulation draws from a model using Stan) for the model with 
+$$ \tau \sim \mathsf{Uniform(0, 100)}.$$ The data show support for a range of values below $\tau = 20$, with a slight tail after
+that, reflecting the possibility of larger values, which are difficult to rule out given that
+the number of groups $J$ is only 8 (that is, not much more than the $J = 3$ required to
+ensure a proper posterior density with finite mass in the right tail)
+
+- The middle histogram shows the corresponding result with
+a $$\tau^2 \sim \mathsf{InvGamma}(0.01, 0.01)$$ prior distribution for $\tau^2$.
+ This prior distribution is
+sharply peaked near zero and further distorts posterior inferences, with the
+problem arising because the marginal likelihood for $\tau^2$ remains high near zero. Moreover, the posterior is quite sensitive to the choices of the hyperparameters (try!)
+
+- The rightmost integral shows the result with a $$\tau \sim \mathsf{HalfCauchy}(0,2.5),$$ which is less likely to dominate the inferences.
+
+
+The $\mathsf{InvGamma}$ prior is not at all noninformative for this problem
+since the resulting posterior distribution remains highly sensitive to the choice of the hyperparameters. The $\mathsf{Uniform}$ prior distribution seems fine for the 8-school analysis, but problems arise if the number of groups $J$ is much smaller, in which case the data supply little information
+about the group-level variance, and a noninformative prior distribution can lead to
+a posterior distribution that is improper or is proper but unrealistically broad.
+
+
+
+## Posterior predictive checking
+
+As mentioned at the beginning, posterior predictive checks are based on data replications from the model in order to assess the model fit. For the 'eight schools' example with Uniform prior we may obtain many graphical summaries with the ```bayesplot``` package:
+
+- direct display of all the data
+
+```{r, 8checking_data, echo = TRUE, message =FALSE}
+library(bayesplot)
+ppc_dens_overlay(y, sims1$y_rep)+
+  xaxis_text(on =TRUE, size=22)+
+  legend_text(size=rel(4))
+
+ppc_ecdf_overlay(y, sims1$y_rep)+
+  xaxis_text(on =TRUE, size=22)+
+  legend_text(size=rel(4))
+```
+
+- display of data summaries or parameter inferences
+
+```{r, 8checking_data2, echo = TRUE, message =FALSE}
+ppc_intervals(y, sims1$y_rep)+
+  xaxis_text(on =TRUE, size=22)+
+  yaxis_text(on =TRUE, size=22)+
+  labs(x="Schools")+
+  theme(axis.title.x = element_text( size=22))+
+  legend_text(size=rel(4))
+
+ppc_stat(y, sims1$y_rep, stat="mean")+
+  xaxis_text(on =TRUE, size=22)+
+  theme(axis.title.x = element_text( size=22))+
+  legend_text(size=rel(1.6))
+
+ppc_stat(y, sims1$y_rep, stat="sd")+
+  xaxis_text(on =TRUE, size=22)+
+  theme(axis.title.x = element_text( size=22))+
+  legend_text(size=rel(1.6))
+
+ppc_stat_2d(y, sims1$y_rep)+
+  xaxis_text(on =TRUE, size=22)+
+  yaxis_text(on =TRUE, size=22)+
+  theme(axis.title.x = element_text( size=22))+
+  legend_text(size=rel(1.6))
+```
+
+- graphs of residuals or other measures of discrepancy between model and data.
+
+
+```{r, 8checking_data3, echo = TRUE, message =FALSE}
+ppc_error_binned(y, sims1$y_rep[1:8,])
+```
+
+- the histograms for the first four schools along with their y true values:
+
+
+
+```{r, 8checking, echo = FALSE, message =FALSE}
+y_ppcs <- as.matrix(fit1, pars = "y_rep")
+dim(y_ppcs) # number of post-warmup draws x length(y)
+mcmc_recover_hist(
+  y_ppcs[, c(1,2, 3, 4)], # pick a few obs
+  true = schools_dat$y[c(1, 2, 3, 4)] 
+)
+```
+
+
+The graphical summaries suggest that the model generates predicted results similar to the observed data in the study. Observed test statistics fall within their replicated distributions , and the distribution of the data is coherent with the replicated ones.
+
+# MCMC and HMC
+
+## MCMC: just a refresh 
+
+Many times, the posterior distribution $\pi(\theta|y)$ does not have a closed form, and we can inspect it through *simulation* only. MCMC algorithms are computational tools designed for this purpose.
+
+Usual MCMC techniques---Metropolis Hastings, Gibbs Sampler, etc.---rely on an iterative sampling of some values $\theta^{(t)},\theta^{(t+1)},\ldots$ in such a way that at each iteration of the process we expect to draw them from a distribution that becomes closer to $\pi(\theta|y)$. 
+
+In Metropolis algorithms, in order to sample these values, we need a *proposal/instrumental distribution* $q(\cdot)$, **whose support contains the support of the posterior** (heavier tails distributions are well suited here). 
+
+Apart for the Gibbs sampler, not all the sampled values are accepted: their acceptance/rejection is governed by a transition probability. *We need a compromise between an algorithm that accepts all the candidates, and another that rejects all the candidates*.
+
+One could prove that the sequence of values $\{ \theta^{(t)}\}$ is a Markov chain, whose stationary distribution is the posterior distribution we want to explore.
+
+Several computational issues should be considered:
+
+- run several (parallel) chains, in order to check the mixing (through $\hat{R}$ Gelman-Rubin statistic).
+
+```{r chainex, fig.width=12, fig.height=15,out.height =19, echo=FALSE}
+ library(bayesplot)
+traceplot(fit1)
+```
+
+- choose different starting points for each chain
+
+- burnin period; thinning
+
+- check the autocorrelations between the draws.
+
+
+## HMC (Hamiltonian Monte Carlo)
+
+To be efficient we need to focus computation on
+the relevant neighborhoods of parameter space. Relevant neighborhoods, however, are defined not by
+probability density but rather by probability mass.
+
+The neighborhoods around the maxima of probability distributions feature a lot of probability density, but, especially in a large number of dimensions, or in long tailed distributions, they do not feature much volume. In other words, the 'sliver' size $dq$
+tends to be small there.
+The **typical set** refers to the portion of space where most of these slivers live. This is typically an interplay of density and volume, and thus is likely to be found as a more-concentrated space not containing the modes in higher dimensions.
+
+```{r typical, echo=FALSE}
+ library(png)
+ library(grid)
+ img <- readPNG("typicalset.png")
+  grid.raster(img)
+```
+
+To accurately estimate expectations we need a method
+for numerically finding and then exploring the typical set.
+
+- A Markov transition that targets our desired distribution
+naturally concentrates towards probability mass.
+
+- An inherent inefficiency in the Gibbs sampler and in the random walk Metropolis Hastings is their random walk behaviour: the simulations can take a long time zigging and zagging while moving through the target distribution.
+
+HMC [@betancourt2017conceptual] borrow strengths from physics to suppress the random walk behaviour in the Metropolis algorithm, thus allowing it to move much more rapidly through the target distribution. The method enjoys the *gradient of the log-posterior distribution*, $\frac{d \log \pi(\theta|y)}{d \theta}$ for a sort of adjustment of the algorithm towards the typical set area.
+
+# Stan: syntax, examples, options
+
+## Background
+
+Stan ([http://mc-stan.org/](http://mc-stan.org/)) is a **probabilistic programming language** and a variety pf **inference algorithms** designed  for statistical modeling and high-performance statistical computation. In a Stan program the user:
+
+- declares data and (constrained) parameter variables
+
+- defines log posterior (or penalized likelihood)
+
+and gets
+
+- MCMC for full Bayes
+
+- Variational Bayes for approximate Bayes
+
+- Optimization for (penalized) MLE
+
+Moreover, there are:
+
+- many interfaces and tools ($\mathsf{R}$, Python, Julia, many more)
+- documentation (example model repo, user guide &
+reference manual, case studies, R package vignettes)
+- online community (Stan Forums on Discourse)
+
+Stan is designed for fitting rich statistical models through an extension of MCMC, the **Hamiltonian Monte Carlo** sampling, and the No-U-Turn Sampler (**NUTS**).
+
+In this seminar, we will use the \mathsf{R} interface, the library ```rstan``` [@rstan].
+
+
+## The syntax
+
+Stan programs are organized into **blocks**. Precisely, there are five possible main blocks:
+
+- data
+- parameters
+- transformed parameters
+- model
+- generated quantities
+
+### Data block
+Here the user declares data types, sizes, and
+constraints. 
+
+```{stan, output.var="ex1", eval = FALSE}
+data {
+  //Dimensions
+  int<lower=1> N;
+  int<lower=1> K;
+  //Variables
+  matrix[N, K] X;
+  vector[N] y;
+}
+```
+
+### Parameters block
+
+Here the user declares parameter types, sizes, and
+constraints:
+
+```{stan, output.var="ex1", eval =FALSE}
+parameters {
+  real alpha;
+  vector[K] beta;
+  real<lower=0> sigma;
+}
+```
+
+### Model block
+
+Here there are the statements defining the posterior
+density in the log scale.
+
+```{stan, output.var="ex1", eval =FALSE}
+model {
+  // priors (flat, uniform, if omitted)
+  sigma ~ exponential(1);
+  alpha ~ normal(0, 10);
+  for (k in 1:K) beta[k] ~ normal(0, 5);
+  
+  //likelihood
+  for (n in 1:N) {
+    y[n] ~ normal(X[n, ] * beta + alpha, sigma);
+  }
+}
+```
+
+By default, if not declared, Stan assumes Uniform prior, say $\pi(\theta)\propto 1 \Rightarrow \log \pi(\theta)\propto 0$, and nothing is added to log-prob.
+
+### Generated quantities
+
+Here users may generate data replications for checking the model fit, or obtain future predictions.
+
+```{stan, output.var="ex1", eval =FALSE}
+generated quantities {
+
+vector[N] y_rep;
+  for (n in 1:N) {
+    real y_hat = X[n,] * beta + alpha; // local/temp
+    y_rep[n] = normal_rng(y_hat, sigma);
+  }
+} 
+```
+
+## Vectorization
+
+Stan allows for an efficient vector/matrix vectorization.
+Note that the expression 
+
+```for (n in 1:N) {y[n] ~ normal(X[n, ] * beta + alpha, sigma);}```
+  
+may be easily replaced by:
+
+```y ~ normal(x * beta + alpha, sigma);```
+
+This vectorized form is much faster. Unlike in Python and R, which are interpreted, Stan is translated to C++ and compiled, so loops and
+assignment statements are fast. Vectorized code is faster in Stan because (a) the expression tree used to
+compute derivatives can be simplified, leading to fewer virtual function calls, and (b) computations that
+would be repeated in the looping version will be computed once
+and reused.)
+
+The constraint ```lower=0``` in the declaration of ```sigma``` constrains the value to be greater
+than or equal to 0. With no prior in the model block, the effect is an improper prior on non-negative real numbers. With Stan matrix indexing scheme, ```x[n]``` picks out row $n$ of the matrix x; because
+```beta``` is a column vector, the product ```x[n] * beta``` is a scalar of type real.
+
+
+
+
+## Reparametrization
+
+Stan sampler can be slow in sampling from distributions with difficult posterior
+geometries. One way to speed up such models is through *reparameterization*.
+
+
+### Centered parametrization
+
+For a simple hierarchical linear model we have:
+
+```{stan, output.var="ex1", eval=FALSE}
+parameters {
+  real mu_beta;
+  real<lower=0> sigma_beta;
+  vector[K] beta;
+...
+model {
+  beta ~ normal(mu_beta, sigma_beta);
+...
+```
+
+meaning that:
+
+$$\beta_k \sim \mathcal{N}(\mu_{\beta}, \sigma^{2}_{\beta}), \ k=1,\ldots,K.$$
+As reported by the Stan manual [@stanmanual]:
+
+*Although not shown, a full model will have priors on both ```mu_beta``` and ```sigma_beta``` along with data modeled based on these coefficients. For instance, a standard binary
+logistic regression with data matrix ```x``` and binary outcome vector ```y``` would include a
+likelihood statement such as form ```y ~ bernoulli_logit(x * beta)```, leading to an
+analytically intractable posterior.
+A hierarchical model such as the above will suffer from  some of inefficiencies, because the values of beta, ```mu_beta``` and ```sigma_beta``` are highly correlated in the posterior. The extremity of the correlation depends on the
+amount of data. When data are **sparse**,
+the non-centered parameterization is preferable; when
+there is **a lot of data**, the centered parameterization is more efficient.*
+
+### Non centered parametrization
+
+Such a hierarchical model can be made much more efficient
+by shifting the data correlation with the parameters to the hyperparameters:
+
+```{stan, output.var="ex1", eval=FALSE}
+parameters {
+  vector[K] beta_raw;
+
+...
+transformed parameters {
+  vector[K] beta;
+  // implies: beta ~ normal(mu_beta, sigma_beta)
+  beta = mu_beta + sigma_beta * beta_raw;
+model {
+  beta_raw ~ normal(0, 1);
+...
+```
+
+This is translated in formula as:
+
+\begin{align*}
+\beta_k = & \mu_{\beta} + \sigma_{\beta}  \tilde{\beta}_k, \ k=1,\ldots,K\\
+\tilde{\beta}_k  & \sim  \mathcal{N}(0,1)\\
+\end{align*}
+
+Any priors defined for ```mu_beta``` and ```sigma_beta``` remain as defined in the original
+model.
+
+## Divergent transitions
+
+As reported at [http://mc-stan.org/misc/warnings.html](http://mc-stan.org/misc/warnings.html):
+
+*Stan uses Hamiltonian Monte Carlo (HMC) to explore the target distribution---the posterior defined by a Stan program + data---by simulating the evolution of a Hamiltonian system. In order to approximate the exact solution of the Hamiltonian dynamics we need to choose a step size governing how far we move each time we evolve the system forward. That is, the step size controls the resolution of the sampler. Unfortunately, for particularly hard problems there are features of the target distribution that are too small for this resolution. Consequently the sampler misses those features and returns biased estimates. Fortunately, this mismatch of scales manifests as divergences which provide a practical diagnostic.*
+
+
+**Reccomendations**:
+
+- Increase the target acceptance rate ```adapt_delta```. In RStan, adapt_delta is one of the parameters that you can include in the optional control list passed to the stan or sampling functions. For example, to set ```adapt_delta``` to 0.99 (the default is 0.8) you would do this:
+
+```{r, eval =FALSE}
+stan(..., control = list(adapt_delta = 0.99))
+```
+
+- Reparameterize your model!
+
+# Examples for the lab part
+
+We will go through a broad example of hierarchical Poisson regression in Stan: the aim is to study the number of cockroaches complaints registered in distinct New York buildings.
+
+# References
+
