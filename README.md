@@ -4,5 +4,5 @@ Here is the folder description:
 
 - **Theory**: handouts.
 
-- **Lab**: lab part, with `R` code and stan programs.
+- **Lab**: lab part, with `R` code, data and stan programs.
 
