@@ -8,4 +8,6 @@ Here is the folder description:
 
 - **Lab**: lab part, with `R` code (`Pest_Control_Code.R`), **data** and **stan programs**. You also find the `Pest_Control_Code.html` file with the Lab illustration.
 
+- **References** some material.
+
 We will able to cover only a part of the `Pest_Control_Code.html` file, but you are free to go in more depth!
