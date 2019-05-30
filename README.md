@@ -4,7 +4,7 @@ https://github.com/LeoEgidi/GLMM-course-on-Stan---PhD-Padova-2019
 
 Here is the folder description:
 
-- **Theory**: handouts, `stan_padova.html` file.
+- **Handouts**: handouts, `stan_padova.html` file.
 
 - **Lab**: lab part, with `R` code (`Pest_Control_Code.R`), **data** and **stan programs**. You also find the `Pest_Control_Code.html` file with the Lab illustration.
 
